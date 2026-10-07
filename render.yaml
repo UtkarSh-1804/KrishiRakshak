@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: krishirakshak-sih-26131
+    runtime: docker
+    plan: free
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    healthCheckPath: /api/health
+    envVars:
+      - key: HOST
+        value: 0.0.0.0
+      - key: PORT
+        value: 10000
+      - key: IMD_API_TOKEN
+        sync: false
