@@ -141,53 +141,25 @@ $('#lookup').addEventListener('click', () => lookup($('#qr-code').value));
 $('#qr-code').addEventListener('keydown', event => { if (event.key === 'Enter') lookup($('#qr-code').value); });
 document.querySelectorAll('.demo-codes button').forEach(button => button.addEventListener('click', () => { $('#qr-code').value = button.dataset.code; lookup(button.dataset.code); }));
 
+const qrCanvas = document.createElement('canvas');
+const qrContext = qrCanvas.getContext('2d', {willReadFrequently:true});
+function decodeQrFrame(source, width, height) {
+  if (!window.jsQR || !qrContext || !width || !height) return '';
+  // Downscale large camera frames to keep scanning responsive on phones.
+  const scale = Math.min(1, 960 / width);
+  qrCanvas.width = Math.max(1, Math.round(width * scale));
+  qrCanvas.height = Math.max(1, Math.round(height * scale));
+  qrContext.drawImage(source, 0, 0, qrCanvas.width, qrCanvas.height);
+  const pixels = qrContext.getImageData(0, 0, qrCanvas.width, qrCanvas.height);
+  return window.jsQR(pixels.data, pixels.width, pixels.height, {inversionAttempts:'attemptBoth'})?.data || '';
+}
+
 async function readQr(bitmap) {
-  let value = '';
-  if ('BarcodeDetector' in window) {
-    const detector = new BarcodeDetector({formats:['qr_code']}); const codes = await detector.detect(bitmap);
-    value = codes[0]?.rawValue || '';
-  }
-  // Standard-library demo QRs use Version 1-L, mask 0. This fallback reads
-  // those sample cards on browsers that do not implement BarcodeDetector.
-  if (!value) value = decodeSampleQr(bitmap);
+  if (!window.jsQR) throw new Error(T('QR decoder could not load. Refresh the page and try again.'));
+  const value = decodeQrFrame(bitmap, bitmap.width, bitmap.height);
   if (!value) throw new Error(T('No QR code found. Try a clearer photo or enter the printed code.'));
   $('#qr-code').value = value; lookup(value);
 }
-
-function decodeSampleQr(bitmap) {
-  if (bitmap.width !== bitmap.height) return '';
-  const canvas = document.createElement('canvas'); canvas.width = bitmap.width; canvas.height = bitmap.height;
-  const context = canvas.getContext('2d', {willReadFrequently:true}); context.drawImage(bitmap, 0, 0);
-  const {data, width} = context.getImageData(0, 0, canvas.width, canvas.height);
-  const modules = 29, scale = width / modules;
-  if (Math.abs(scale - Math.round(scale)) > 0.03) return '';
-  const darkAt = (mx,my) => {
-    const x = Math.floor((mx + 4.5) * scale), y = Math.floor((my + 4.5) * scale), i = (y * width + x) * 4;
-    return (data[i] + data[i+1] + data[i+2]) / 3 < 128;
-  };
-  // Confirm one finder pattern so a random square image is not treated as a QR.
-  if (!darkAt(0,0) || !darkAt(3,3) || darkAt(1,1)) return '';
-  const n = 21, fixed = Array.from({length:n},()=>Array(n).fill(false));
-  const markFinder = (left,top) => { for(let dy=-1;dy<=7;dy++) for(let dx=-1;dx<=7;dx++) {const x=left+dx,y=top+dy;if(x>=0&&x<n&&y>=0&&y<n)fixed[y][x]=true;} };
-  markFinder(0,0);markFinder(n-7,0);markFinder(0,n-7);
-  for(let i=8;i<n-8;i++){fixed[6][i]=true;fixed[i][6]=true;}
-  for(let i=0;i<=5;i++)fixed[i][8]=true;
-  fixed[7][8]=fixed[8][8]=fixed[8][7]=true;
-  for(let i=9;i<15;i++)fixed[8][14-i]=true;
-  for(let i=0;i<8;i++)fixed[8][n-1-i]=true;
-  for(let i=8;i<15;i++)fixed[n-15+i][8]=true;
-  fixed[n-8][8]=true;
-  const stream=[]; let right=n-1, up=true;
-  while(right>=1){if(right===6)right=5;for(let v=0;v<n;v++){const y=up?n-1-v:v;for(const x of [right,right-1])if(!fixed[y][x])stream.push(darkAt(x,y)^(((x+y)%2)===0?1:0));}up=!up;right-=2;}
-  const read=(start,count)=>{let v=0;for(let i=0;i<count;i++)v=(v<<1)|stream[start+i];return v;};
-  if(read(0,4)!==0b0010)return '';
-  const length=read(4,9);if(length<1||length>25)return '';
-  let pos=13, decoded='';
-  for(let i=0;i+1<length;i+=2){const pair=read(pos,11);pos+=11;if(pair>=45*45)return '';decoded+=ALPHANUM_QR[Math.floor(pair/45)]+ALPHANUM_QR[pair%45];}
-  if(length%2){const last=read(pos,6);if(last>=45)return '';decoded+=ALPHANUM_QR[last];}
-  return decoded;
-}
-const ALPHANUM_QR = '0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:';
 $('#qr-input').addEventListener('change', async event => {
   if (!event.target.files?.[0]) return;
   try { await readQr(await createImageBitmap(event.target.files[0])); } catch (error) { toast(error.message); }
@@ -195,12 +167,21 @@ $('#qr-input').addEventListener('change', async event => {
 
 $('#start-camera').addEventListener('click', async () => {
   try {
-    if (!('BarcodeDetector' in window)) throw new Error(T('QR camera scanning needs a browser with BarcodeDetector. Use the product-code box instead.'));
+    if (!window.jsQR) throw new Error(T('QR decoder could not load. Refresh the page and try again.'));
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error(T('Camera access is unavailable. Open this site using its HTTPS link.'));
     stream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
     const video = $('#camera'); video.srcObject = stream; video.hidden = false; $('#scan-art').hidden = true;
     $('#start-camera').hidden = true; $('#stop-camera').hidden = false; await video.play();
-    const detector = new BarcodeDetector({formats:['qr_code']});
-    scanTimer = setInterval(async () => { if (video.readyState < 2) return; try { const found = await detector.detect(video); if (found.length) { $('#qr-code').value = found[0].rawValue; lookup(found[0].rawValue); stopCamera(); } } catch (_) {} }, 600);
+    let scanning = false;
+    scanTimer = setInterval(() => {
+      if (scanning || video.readyState < 2 || !video.videoWidth) return;
+      scanning = true;
+      try {
+        const value = decodeQrFrame(video, video.videoWidth, video.videoHeight);
+        if (value) { $('#qr-code').value = value; stopCamera(); lookup(value); }
+      } catch (_) { /* Wait for the next camera frame; keep the scan UI open. */ }
+      finally { scanning = false; }
+    }, 250);
   } catch (error) { toast(error.message || T('Could not open camera. Check browser permission.')); }
 });
 function stopCamera() { if (scanTimer) clearInterval(scanTimer); scanTimer = null; stream?.getTracks().forEach(track=>track.stop()); stream = null; $('#camera').srcObject = null; $('#camera').hidden = true; $('#scan-art').hidden = false; $('#start-camera').hidden = false; $('#stop-camera').hidden = true; }
