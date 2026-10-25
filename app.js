@@ -14,7 +14,7 @@ async function readApiJson(response) {
   try { return JSON.parse(text); } catch (_) { throw new Error(T('The backend returned invalid JSON. Restart it with python server.py.')); }
 }
 const apiStatus = $('#api-status');
-let weather = { humidity: 0, rainChance: 0 }, stream = null, scanTimer = null;
+let weather = { humidity: 0, rainChance: 0 }, stream = null, scanTimer = null, cropStream = null, cropPhotoUrl = null;
 
 $('#today').textContent = new Intl.DateTimeFormat('en-IN', {weekday:'short',day:'numeric',month:'short'}).format(new Date());
 applyLanguage();
@@ -69,15 +69,55 @@ $('#locate').addEventListener('click', () => {
   }, () => { $('#locate span').textContent = T('Know farm weather'); toast(T('Location permission was not granted.')); }, {timeout:12000,maximumAge:300000});
 });
 
-// Photos are previewed locally. They are not sent to the API because this demo
-// has no trained image model; diagnosis uses explicit symptom selections.
-$('#photo-input').addEventListener('change', event => {
-  const file = event.target.files?.[0]; if (!file) return;
-  $('#preview').src = URL.createObjectURL(file); $('#preview').hidden = false;
-  $('.upload-placeholder').hidden = true;
+// Crop photos from upload or camera are previewed locally and are not sent to the API.
+function showCropPhoto(file) {
+  if (cropPhotoUrl) URL.revokeObjectURL(cropPhotoUrl);
+  cropPhotoUrl = URL.createObjectURL(file);
+  $('#preview').src = cropPhotoUrl; $('#preview').hidden = false;
+  $('#photo-placeholder').hidden = true;
   const box = $('#diagnosis-result'); box.hidden = false;
   box.innerHTML = `<span class="warning-pill">${T('Photo received')}</span><h4>${escapeHtml(file.name)}</h4><p>${T('The image is shown for inspection, but this demo does not identify disease from photo pixels. Select the visible symptoms and press Check crop health for safe early-triage guidance.')}</p>`;
+}
+$('#photo-input').addEventListener('change', event => {
+  const file = event.target.files?.[0]; if (!file) return;
+  showCropPhoto(file);
+  event.target.value = '';
 });
+
+function stopCropCamera() {
+  cropStream?.getTracks().forEach(track => track.stop());
+  cropStream = null;
+  $('#photo-camera').srcObject = null;
+  $('#crop-camera-panel').hidden = true;
+  $('#open-photo-camera').hidden = false;
+}
+$('#open-photo-camera').addEventListener('click', async () => {
+  try {
+    if (!navigator.mediaDevices?.getUserMedia) throw new Error(T('Camera access is unavailable. Open this site using its HTTPS link.'));
+    cropStream = await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'}},audio:false});
+    const video = $('#photo-camera');
+    video.srcObject = cropStream;
+    $('#crop-camera-panel').hidden = false;
+    $('#open-photo-camera').hidden = true;
+    await video.play();
+  } catch (error) {
+    stopCropCamera();
+    toast(error.message || T('Could not open camera. Check browser permission.'));
+  }
+});
+$('#capture-photo').addEventListener('click', () => {
+  const video = $('#photo-camera');
+  if (!video.videoWidth) return toast(T('Camera is still starting. Try again in a moment.'));
+  const canvas = document.createElement('canvas');
+  canvas.width = video.videoWidth; canvas.height = video.videoHeight;
+  canvas.getContext('2d').drawImage(video, 0, 0, canvas.width, canvas.height);
+  canvas.toBlob(blob => {
+    if (!blob) return toast(T('Could not capture the photo. Try again.'));
+    showCropPhoto(new File([blob], `crop-photo-${Date.now()}.jpg`, {type:'image/jpeg'}));
+    stopCropCamera();
+  }, 'image/jpeg', 0.92);
+});
+$('#cancel-photo-camera').addEventListener('click', stopCropCamera);
 
 $('#analyze').addEventListener('click', async () => {
   const symptoms = [...document.querySelectorAll('.symptom-list input:checked')].map(input => input.value);

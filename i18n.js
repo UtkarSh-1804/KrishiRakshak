@@ -38,7 +38,11 @@ Object.assign(HINDI, {
   'This is an educational pest card, not product authentication or a confirmed diagnosis.':'यह जानकारी के लिए कीट कार्ड है; उत्पाद की असलियत या पक्की बीमारी/कीट पहचान नहीं करता।',
   'IMD weather needs an API token. See README setup step 6.':'IMD मौसम के लिए API टोकन चाहिए। README के सेटअप चरण 6 को देखें।'
 });
-const HINDI_NORMALIZED = Object.fromEntries(Object.entries(HINDI).map(([english, hindi]) => [english.trim(), hindi]));
+Object.assign(HINDI, {
+  'Your crop photo will appear here':'आपकी फसल की फोटो यहाँ दिखेगी',
+  'Take photo':'फोटो लें','Upload photo':'फोटो अपलोड करें','Capture photo':'फोटो खींचें','Cancel camera':'कैमरा बंद करें',
+  'Camera is still starting. Try again in a moment.':'कैमरा शुरू हो रहा है। थोड़ी देर बाद फिर कोशिश करें।','Could not capture the photo. Try again.':'फोटो नहीं ले सके। फिर कोशिश करें।'
+});const HINDI_NORMALIZED = Object.fromEntries(Object.entries(HINDI).map(([english, hindi]) => [english.trim(), hindi]));
 let language = localStorage.getItem('kr-language') || 'en';
 function T(text) { return language === 'hi' ? (HINDI_NORMALIZED[String(text).trim()] || text) : text; }
 function applyLanguage() {
