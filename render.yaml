@@ -1,6 +1,6 @@
 services:
   - type: web
-    name: krishirakshak-sih-26131
+    name: krishirakshak
     runtime: docker
     plan: free
     dockerfilePath: ./Dockerfile
